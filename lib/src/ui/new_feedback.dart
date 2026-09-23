@@ -13,12 +13,18 @@ class NewFeedbackScreen extends StatefulWidget {
   final VoidCallback onDone;
   final VoidCallback onCancel;
 
+  /// Called on send to get fresh custom key/value pairs (e.g.
+  /// `{'flavor': 'foss'}`) merged into the auto-collected metadata.
+  /// Forwarded verbatim to [FeedbackJar.submit]'s `properties` param.
+  final Map<String, dynamic>? Function()? properties;
+
   const NewFeedbackScreen({
     super.key,
     required this.config,
     required this.theme,
     required this.onDone,
     required this.onCancel,
+    this.properties,
   });
 
   @override
@@ -71,6 +77,7 @@ class _NewFeedbackScreenState extends State<NewFeedbackScreen> {
       email: widget.config.collectEmail
           ? (_email.text.trim().isEmpty ? null : _email.text.trim())
           : null,
+      properties: widget.properties?.call(),
     );
     if (!mounted) return;
     setState(() => _sending = false);

@@ -21,6 +21,11 @@ class FeedbackDetailScreen extends StatefulWidget {
   /// Open a post referenced by a `#[…]` mention in the body or a comment.
   final void Function(String postId)? onPostPress;
 
+  /// Called on each comment send to get the name/email to attach to it.
+  /// Return `null` fields (or omit this param entirely) to fall back to the
+  /// remembered identity.
+  final ({String? name, String? email}) Function()? commentIdentity;
+
   const FeedbackDetailScreen({
     super.key,
     required this.post,
@@ -29,6 +34,7 @@ class FeedbackDetailScreen extends StatefulWidget {
     required this.onBack,
     this.onVoteChange,
     this.onPostPress,
+    this.commentIdentity,
   });
 
   @override
@@ -48,6 +54,18 @@ class _FeedbackDetailScreenState extends State<FeedbackDetailScreen> {
     super.initState();
     _draft.addListener(_onChanged);
     _load();
+    _refreshVoteState();
+  }
+
+  // Refresh the vote pill with the authoritative server state instead of only
+  // trusting the (possibly stale) cached post handed down from the list.
+  Future<void> _refreshVoteState() async {
+    if (!widget.config.allowVotes) return;
+    final result = await FeedbackJar.shared.getVoteState(widget.post.id);
+    if (!mounted) return;
+    if (result case FeedbackSuccess(:final value)) {
+      widget.onVoteChange?.call(value.upvotes, value.hasVoted);
+    }
   }
 
   @override
@@ -79,10 +97,13 @@ class _FeedbackDetailScreenState extends State<FeedbackDetailScreen> {
     if (content.isEmpty || _sending) return;
     setState(() => _sending = true);
 
+    final identity = widget.commentIdentity?.call();
     final result = await FeedbackJar.shared.addComment(
       widget.post.id,
       content,
       parentId: _replyTo?.id,
+      name: identity?.name,
+      email: identity?.email,
     );
     if (!mounted) return;
     setState(() => _sending = false);

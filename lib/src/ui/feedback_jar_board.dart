@@ -19,6 +19,16 @@ const int _pageSize = 20;
 /// ```
 ///
 /// To push it as a full route, use [showFeedbackJar].
+///
+/// To drive an already-mounted board from the host (reset identity, jump to
+/// a post), attach a [GlobalKey] and call the [FeedbackJarBoardState] methods:
+/// ```dart
+/// final boardKey = GlobalKey<FeedbackJarBoardState>();
+/// FeedbackJarBoard(key: boardKey)
+/// // later
+/// boardKey.currentState?.resetIdentity();
+/// boardKey.currentState?.openPost('post_123');
+/// ```
 class FeedbackJarBoard extends StatefulWidget {
   /// Accent colour for the vote state, primary button and links.
   /// Defaults to FeedbackJar red.
@@ -30,20 +40,35 @@ class FeedbackJarBoard extends StatefulWidget {
   /// When provided, a "Close" affordance is shown in the header.
   final VoidCallback? onClose;
 
+  /// Called each time the board's own "New feedback" screen sends feedback,
+  /// to get fresh custom key/value pairs (e.g. `{'flavor': 'foss'}`) merged
+  /// into the auto-collected metadata. Forwarded verbatim to
+  /// [FeedbackJar.submit]'s `properties` param.
+  final Map<String, dynamic>? Function()? properties;
+
+  /// Called each time a comment is sent from a post's detail screen, to get
+  /// the name/email to attach to it. Return `null` fields (or omit this
+  /// param entirely) to fall back to the remembered identity.
+  final ({String? name, String? email}) Function()? commentIdentity;
+
   const FeedbackJarBoard({
     super.key,
     this.accentColor,
     this.boardId,
     this.onClose,
+    this.properties,
+    this.commentIdentity,
   });
 
   @override
-  State<FeedbackJarBoard> createState() => _FeedbackJarBoardState();
+  State<FeedbackJarBoard> createState() => FeedbackJarBoardState();
 }
 
 enum _ScreenName { board, detail, newFeedback }
 
-class _FeedbackJarBoardState extends State<FeedbackJarBoard> {
+/// State for [FeedbackJarBoard], public so a host can drive it imperatively
+/// via a [GlobalKey] — see [FeedbackJarBoard]'s class doc.
+class FeedbackJarBoardState extends State<FeedbackJarBoard> {
   final _scroll = ScrollController();
 
   _ScreenName _screen = _ScreenName.board;
@@ -62,6 +87,10 @@ class _FeedbackJarBoardState extends State<FeedbackJarBoard> {
   bool _refreshing = false;
   bool _loadingMore = false;
   String? _error;
+
+  // Bumped on [resetIdentity] to force a fresh NewFeedbackScreen (fresh
+  // prefilled name/email) after the remembered identity is cleared.
+  int _newFeedbackToken = 0;
 
   @override
   void initState() {
@@ -150,6 +179,24 @@ class _FeedbackJarBoardState extends State<FeedbackJarBoard> {
     }
   }
 
+  /// Jump straight to [postId]'s detail screen (e.g. from a push
+  /// notification tap) — reuses the same lookup/fetch as an in-app mention.
+  Future<void> openPost(String postId) => _openPost(postId);
+
+  /// Forget the remembered submitter identity (e.g. on logout) and refresh
+  /// this board as a clean anonymous guest: reloads the feed and clears any
+  /// prefilled name/email in the New Feedback screen.
+  Future<void> resetIdentity() async {
+    await FeedbackJar.shared.clearIdentity();
+    if (!mounted) return;
+    setState(() {
+      _newFeedbackToken++;
+      _screen = _ScreenName.board;
+      _selected = null;
+    });
+    await _refresh();
+  }
+
   void _patchPost(String id, int upvotes, bool hasVoted) {
     setState(() {
       _posts = _posts
@@ -195,8 +242,12 @@ class _FeedbackJarBoardState extends State<FeedbackJarBoard> {
     switch (_screen) {
       case _ScreenName.newFeedback:
         return NewFeedbackScreen(
+          // Key bumped by resetIdentity() so a fresh guest gets a clean
+          // screen (no stale prefilled name/email).
+          key: ValueKey(_newFeedbackToken),
           config: _config,
           theme: theme,
+          properties: widget.properties,
           onCancel: () => setState(() => _screen = _ScreenName.board),
           onDone: () {
             setState(() => _screen = _ScreenName.board);
@@ -215,6 +266,7 @@ class _FeedbackJarBoardState extends State<FeedbackJarBoard> {
           post: live,
           config: _config,
           theme: theme,
+          commentIdentity: widget.commentIdentity,
           onBack: () => setState(() => _screen = _ScreenName.board),
           onVoteChange: (u, v) => _patchPost(live.id, u, v),
           onPostPress: _openPost,

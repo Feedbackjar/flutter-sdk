@@ -2,7 +2,7 @@ name: feedbackjar
 description: >-
   Flutter SDK for FeedbackJar — collect user feedback with automatic device
   metadata. You build the UI; the SDK handles submission and listing.
-version: 1.7.0
+version: 1.8.0
 homepage: https://feedbackjar.com
 
 environment:
